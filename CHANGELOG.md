@@ -7,6 +7,7 @@ N/A
 ### Added
 
 - New `Swarm.Tracker.handoff/2` function which moves all processes of a worker to the remaining ones, so the worker node can be shut down gracefully [#83](https://github.com/bitwalker/swarm/pull/83).
+- `:respawn_on_node_down` option added to configuration. Defaults to true. If set to false, process on node that went down won't be automatically restarted on new node.
 
 ### Removed
 
