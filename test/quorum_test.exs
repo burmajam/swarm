@@ -9,7 +9,7 @@ defmodule Swarm.QuorumTests do
   @node4 :"node4@127.0.0.1"
   @node5 :"node5@127.0.0.1"
   @nodes [@node1, @node2, @node3, @node4, @node5]
-  @names [{:test, 1}, {:test, 2}, {:test, 3}, {:test, 4}, {:test, 5}]
+  @names [{:test, 7}, {:test, 10}, {:test, 3}, {:test, 4}, {:test, 5}]
 
   alias Swarm.Cluster
   alias Swarm.Distribution.{Ring, StaticQuorumRing}
@@ -130,6 +130,24 @@ defmodule Swarm.QuorumTests do
 
   describe "net split" do
     setup [:form_five_node_cluster]
+
+    test "should have process on each node before it happens" do
+      # start worker for each name
+      Enum.each(@names, fn name ->
+        {:ok, _pid} = register_name(@node1, name, MyApp.WorkerSup, :register, [])
+      end)
+
+      nodes_without_pids =
+        @names
+        |> Enum.map(&whereis_name(@node1, &1))
+        |> Enum.reduce(@nodes, fn pid, nodes -> List.delete(nodes, node(pid)) end)
+
+      assert nodes_without_pids == []
+
+      Enum.each(@names, fn name ->
+        assert :ok = unregister_name(@node1, name)
+      end)
+    end
 
     test "should redistribute processes from smaller to larger partition" do
       # start worker for each name
