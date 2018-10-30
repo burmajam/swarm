@@ -16,7 +16,10 @@ config :swarm,
   ],
   node_whitelist: [
     # the same type of list as node_blacklist
-  ]
+  ],
+  # if false, process won't be restarted on new node after
+  # owning node went down. Defaults to true
+  respawn_on_node_down: true
 
 config :logger, level: :warn
 

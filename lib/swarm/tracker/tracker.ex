@@ -12,6 +12,7 @@ defmodule Swarm.Tracker do
   @retry_interval 1_000
   @retry_max_attempts 10
   @default_anti_entropy_interval 5 * 60_000
+  @respawn_on_node_down true
 
   import Swarm.Entry
   require Swarm.Registry
@@ -37,7 +38,8 @@ defmodule Swarm.Tracker do
             self: atom(),
             sync_node: nil | atom(),
             sync_ref: nil | reference(),
-            pending_sync_reqs: [pid()]
+            pending_sync_reqs: [pid()],
+            respawn_on_node_down: boolean()
           }
     defstruct clock: nil,
               nodes: [],
@@ -45,7 +47,8 @@ defmodule Swarm.Tracker do
               self: :nonode@nohost,
               sync_node: nil,
               sync_ref: nil,
-              pending_sync_reqs: []
+              pending_sync_reqs: [],
+              respawn_on_node_down: nil
   end
 
   # Public API
@@ -168,7 +171,15 @@ defmodule Swarm.Tracker do
     timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
     Process.send_after(self(), :cluster_join, timeout)
 
-    state = %TrackerState{nodes: nodelist, strategy: strategy, self: node()}
+    respawn_on_node_down =
+      Application.get_env(:swarm, :respawn_on_node_down, @respawn_on_node_down)
+
+    state = %TrackerState{
+      nodes: nodelist,
+      strategy: strategy,
+      self: node(),
+      respawn_on_node_down: respawn_on_node_down
+    }
 
     {:ok, :cluster_wait, state}
   end
@@ -886,14 +897,14 @@ defmodule Swarm.Tracker do
 
             :else ->
               # pid is dead, we're going to restart it
-              case Strategy.key_to_node(state.strategy, name) do
-                :undefined ->
+              case {Strategy.key_to_node(state.strategy, name), state.respawn_on_node_down} do
+                {:undefined, _} ->
                   # No node available to restart process on, so remove registration
                   warn("no node available to restart #{inspect(name)}")
                   {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
                   new_state.clock
 
-                ^current_node ->
+                {^current_node, true} ->
                   debug("restarting #{inspect(name)} on #{current_node}")
                   {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
 
@@ -902,7 +913,12 @@ defmodule Swarm.Tracker do
                     {:keep_state, new_state} -> new_state.clock
                   end
 
-                _other_node ->
+                {^current_node, false} ->
+                  debug("NOT restarting #{inspect(name)} on #{current_node}")
+                  {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
+                  new_state.clock
+
+                {_other_node, _} ->
                   # other_node will tell us to unregister/register the restarted pid
                   lclock
               end
