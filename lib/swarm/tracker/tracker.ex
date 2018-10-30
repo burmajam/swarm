@@ -715,7 +715,7 @@ defmodule Swarm.Tracker do
   end
 
   # This state helps us ensure that nodes proactively keep themselves synced
-  # after joining the cluster and initial syncrhonization. This way if replication
+  # after joining the cluster and initial synchronization. This way if replication
   # events fail for some reason, we can control the drift in registry state
   def anti_entropy(%TrackerState{nodes: []}) do
     interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
@@ -994,7 +994,7 @@ defmodule Swarm.Tracker do
     end
   end
 
-  defp handle_replica_event(_from, {:untrack, pid}, rclock, state) do
+  defp handle_replica_event(_from, {:untrack, pid}, rclock, _state) do
     debug("replica event: untrack #{inspect(pid)}")
 
     case Registry.get_by_pid(pid) do
@@ -1162,29 +1162,36 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
+
   defp handle_call({:handoff, worker_name, handoff_state}, from, state) do
     Registry.get_by_name(worker_name)
     |> case do
       :undefined ->
         # Worker was already removed from registry -> do nothing
-        debug "The node #{worker_name} was not found in the registry"
+        debug("The node #{worker_name} was not found in the registry")
+
       entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
         case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
           {:error, {:invalid_ring, :no_nodes}} ->
-            debug "Cannot handoff #{inspect name} because there is no other node left"
+            debug("Cannot handoff #{inspect(name)} because there is no other node left")
+
           other_node ->
-            debug "#{inspect name} has requested to be terminated and resumed on another node"
+            debug("#{inspect(name)} has requested to be terminated and resumed on another node")
             {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
             send(pid, {:swarm, :die})
-            debug "sending handoff for #{inspect name} to #{other_node}"
-            GenStateMachine.cast({__MODULE__, other_node},
-                                 {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
+            debug("sending handoff for #{inspect(name)} to #{other_node}")
+
+            GenStateMachine.cast(
+              {__MODULE__, other_node},
+              {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}}
+            )
         end
     end
 
     GenStateMachine.reply(from, :finished)
     :keep_state_and_data
   end
+
   defp handle_call(msg, _from, _state) do
     warn("unrecognized call: #{inspect(msg)}")
     :keep_state_and_data
