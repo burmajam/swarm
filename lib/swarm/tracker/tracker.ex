@@ -12,6 +12,7 @@ defmodule Swarm.Tracker do
   @retry_interval 1_000
   @retry_max_attempts 10
   @default_anti_entropy_interval 5 * 60_000
+  @inject_start_reason false
 
   import Swarm.Entry
   require Swarm.Registry
@@ -37,7 +38,8 @@ defmodule Swarm.Tracker do
             self: atom(),
             sync_node: nil | atom(),
             sync_ref: nil | reference(),
-            pending_sync_reqs: [pid()]
+            pending_sync_reqs: [pid()],
+            inject_start_reason: boolean()
           }
     defstruct clock: nil,
               nodes: [],
@@ -45,7 +47,8 @@ defmodule Swarm.Tracker do
               self: :nonode@nohost,
               sync_node: nil,
               sync_ref: nil,
-              pending_sync_reqs: []
+              pending_sync_reqs: [],
+              inject_start_reason: false
   end
 
   # Public API
@@ -168,7 +171,14 @@ defmodule Swarm.Tracker do
     timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
     Process.send_after(self(), :cluster_join, timeout)
 
-    state = %TrackerState{nodes: nodelist, strategy: strategy, self: node()}
+    inject_start_reason = Application.get_env(:swarm, :inject_start_reason, @inject_start_reason)
+
+    state = %TrackerState{
+      nodes: nodelist,
+      strategy: strategy,
+      self: node(),
+      inject_start_reason: inject_start_reason
+    }
 
     {:ok, :cluster_wait, state}
   end
@@ -787,7 +797,13 @@ defmodule Swarm.Tracker do
       case Registry.get_by_name(name) do
         :undefined ->
           {{m, f, a}, _other_meta} = Map.pop(meta, :mfa)
-          {:ok, pid} = apply(m, f, [:takeover | a])
+
+          args =
+            if state.inject_start_reason,
+              do: [:takeover | a],
+              else: a
+
+          {:ok, pid} = apply(m, f, args)
           GenServer.cast(pid, {:swarm, :end_handoff, handoff_state})
           ref = Process.monitor(pid)
           lclock = Clock.join(clock, rclock)
@@ -1294,8 +1310,14 @@ defmodule Swarm.Tracker do
             debug("starting #{inspect(name)} on #{current_node}")
 
             try do
-              reason = if from, do: :normal, else: :failover
-              case apply(m, f, [reason | a]) do
+              args =
+                case {state.inject_start_reason, from} do
+                  {true, nil} -> [:failover | a]
+                  {true, _} -> [:normal | a]
+                  _ -> a
+                end
+
+              case apply(m, f, args) do
                 {:ok, pid} ->
                   debug("started #{inspect(name)} on #{current_node}")
                   add_registration({name, pid, meta}, from, state)

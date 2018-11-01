@@ -16,7 +16,10 @@ config :swarm,
   ],
   node_whitelist: [
     # the same type of list as node_blacklist
-  ]
+  ],
+  # injects start reason (:normal | :failover | :takeover)
+  # as a first argument when invoking start process MFA. Defaults to false
+  inject_start_reason: false
 
 config :logger, level: :warn
 
