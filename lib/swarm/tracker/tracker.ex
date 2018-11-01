@@ -787,7 +787,7 @@ defmodule Swarm.Tracker do
       case Registry.get_by_name(name) do
         :undefined ->
           {{m, f, a}, _other_meta} = Map.pop(meta, :mfa)
-          {:ok, pid} = apply(m, f, a)
+          {:ok, pid} = apply(m, f, [:takeover | a])
           GenServer.cast(pid, {:swarm, :end_handoff, handoff_state})
           ref = Process.monitor(pid)
           lclock = Clock.join(clock, rclock)
@@ -1294,7 +1294,8 @@ defmodule Swarm.Tracker do
             debug("starting #{inspect(name)} on #{current_node}")
 
             try do
-              case apply(m, f, a) do
+              reason = if from, do: :normal, else: :failover
+              case apply(m, f, [reason | a]) do
                 {:ok, pid} ->
                   debug("started #{inspect(name)} on #{current_node}")
                   add_registration({name, pid, meta}, from, state)
